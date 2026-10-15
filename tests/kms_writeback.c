@@ -415,27 +415,24 @@ static void writeback_check_output(igt_output_t *output, igt_plane_t *plane,
 	igt_remove_fb(output_fb->fd, &second_out_fb);
 }
 
-static void do_single_commit(igt_output_t *output, igt_plane_t *plane, igt_fb_t *in_fb,
-			      igt_fb_t *out_fb)
+static void dump_fb(int fd, igt_fb_t *fb, const char *path_name,
+		    const char *file_name)
 {
-	uint32_t in_fb_color = 0xffff0000;
+	cairo_surface_t *surface;
+	char filepath[PATH_MAX];
+	cairo_status_t status;
 
-	fill_fb(in_fb, in_fb_color);
-
-	igt_plane_set_fb(plane, in_fb);
-	igt_output_set_writeback_fb(output, out_fb);
-
-	igt_display_commit_atomic(output->display, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
-	if (out_fb)
-		get_and_wait_out_fence(output);
+	surface = igt_get_cairo_surface(fd, fb);
+	snprintf(filepath, PATH_MAX, "%s/%s.png", path_name, file_name);
+	status = cairo_surface_write_to_png(surface, filepath);
+	igt_assert_eq(status, CAIRO_STATUS_SUCCESS);
+	cairo_surface_destroy(surface);
 }
 
 static void commit_and_dump_fb(igt_display_t *display, igt_output_t *output, igt_plane_t *plane,
 			        igt_fb_t *input_fb, drmModeModeInfo *mode)
 {
-	cairo_surface_t *fb_surface_out;
-	char filepath_out[PATH_MAX];
-	cairo_status_t status;
+	char input_name[NAME_MAX];
 	char *path_name;
 	char *file_name;
 	unsigned int fb_id;
@@ -449,13 +446,17 @@ static void commit_and_dump_fb(igt_display_t *display, igt_output_t *output, igt
 			      igt_fb_mod_to_tiling(0), &output_fb);
 	igt_require(fb_id > 0);
 
-	do_single_commit(output, plane, input_fb, &output_fb);
+	igt_paint_test_pattern_fb(display->drm_fd, input_fb);
 
-	fb_surface_out = igt_get_cairo_surface(display->drm_fd, &output_fb);
-	snprintf(filepath_out, PATH_MAX, "%s/%s.png", path_name, file_name);
-	status = cairo_surface_write_to_png(fb_surface_out, filepath_out);
-	igt_assert_eq(status, CAIRO_STATUS_SUCCESS);
-	cairo_surface_destroy(fb_surface_out);
+	igt_plane_set_fb(plane, input_fb);
+	igt_output_set_writeback_fb(output, &output_fb);
+
+	igt_display_commit_atomic(display, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
+	get_and_wait_out_fence(output);
+
+	snprintf(input_name, NAME_MAX, "%s-input", file_name);
+	dump_fb(display->drm_fd, input_fb, path_name, input_name);
+	dump_fb(display->drm_fd, &output_fb, path_name, file_name);
 
 	igt_remove_fb(display->drm_fd, &output_fb);
 }
